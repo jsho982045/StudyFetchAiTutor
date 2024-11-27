@@ -1,7 +1,7 @@
-// src/app/chat/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
+import { createFlashcardSet } from "@/utils/anthropic"; 
 import Link from "next/link";
 
 interface FlashcardSet {
@@ -32,7 +32,11 @@ export default function ChatPage() {
                     console.error("Failed to fetch flashcard sets:", data.error);
                 }
             } catch (error) {
-                console.error("Error fetching flashcard sets:", error);
+                if (error instanceof Error) {
+                    console.error("Error fetching flashcard sets:", error.message);
+                } else {
+                    console.error("Unknown error fetching flashcard sets:", error);
+                }
             }
         };
 
@@ -41,33 +45,72 @@ export default function ChatPage() {
 
     const handleSend = async () => {
         if (!input.trim()) return;
-
+    
         setMessages([...messages, { sender: "User", text: input }]);
         const userMessage = input;
         setInput("");
         setLoading(true);
-
+    
         try {
-            const response = await fetch("/api/anthropic", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ prompt: userMessage }),
-            });
-
-            if (!response.ok) {
-                throw new Error("Failed to fetch AI response");
+            if (userMessage.toLowerCase().includes("create flashcards on")) {
+                const topic = userMessage.replace(/create flashcards on/i, "").trim();
+                setMessages((prev) => [...prev, { sender: "AI", text: `Creating flashcards on "${topic}"...` }]);
+    
+                const flashcardData = await createFlashcardSet(topic);
+    
+                // Save flashcards to DB
+                const response = await fetch("/api/flashcards", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(flashcardData),
+                });
+    
+                if (response.ok) {
+                    const result = await response.json();
+                    setMessages((prev) => [
+                        ...prev,
+                        {
+                            sender: "AI",
+                            text: `Flashcard set "${flashcardData.topic}" created! [View Flashcards](#/flashcards/${result.data.id})`,
+                        },
+                    ]);
+                } else {
+                    setMessages((prev) => [
+                        ...prev,
+                        { sender: "AI", text: "Failed to save flashcard set." },
+                    ]);
+                }
+            } else {
+                const response = await fetch("/api/anthropic", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ prompt: userMessage }),
+                });
+    
+                if (response.ok) {
+                    const data = await response.json();
+                    setMessages((prev) => [...prev, { sender: "AI", text: data.content }]);
+                } else {
+                    setMessages((prev) => [
+                        ...prev,
+                        { sender: "AI", text: "Error processing your request." },
+                    ]);
+                }
             }
-
-            const { completion } = await response.json();
-            setMessages((prev) => [...prev, { sender: "AI", text: completion }]);
         } catch (error) {
-            console.error("Error fetching AI response:", error.message);
-            setMessages((prev) => [
-                ...prev,
-                { sender: "AI", text: "Sorry, I couldn't process your request." },
-            ]);
+            if (error instanceof Error) {
+                console.error("Error:", error.message);
+                setMessages((prev) => [
+                    ...prev,
+                    { sender: "AI", text: "Sorry, something went wrong." },
+                ]);
+            } else {
+                console.error("Unknown error:", error);
+                setMessages((prev) => [
+                    ...prev,
+                    { sender: "AI", text: "An unknown error occurred." },
+                ]);
+            }
         } finally {
             setLoading(false);
         }

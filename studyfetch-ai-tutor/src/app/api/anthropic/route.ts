@@ -1,5 +1,6 @@
 // src/app/api/anthropic/route.ts
 import { NextResponse } from "next/server";
+import { createFlashcardSet } from '@/utils/anthropic';
 
 export async function POST(req: Request) {
     try {
@@ -7,12 +8,12 @@ export async function POST(req: Request) {
         console.log("Prompt received:", prompt);
 
         // Mock AI response for development
-        const mockCompletion = `This is a mock AI response for your input: "${prompt}"`;
-        console.log("Mock completion:", mockCompletion);
+        const aiResponse = await createFlashcardSet(prompt);
+        console.log("AI Response: ", aiResponse);
 
-        return NextResponse.json({ success: true, completion: mockCompletion });
+        return NextResponse.json({ success: true, content: aiResponse });
     } catch (error: any) {
-        console.error("Error in mock AI route:", error.message);
+        console.error("Error in  AI route:", error.message);
         return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 }

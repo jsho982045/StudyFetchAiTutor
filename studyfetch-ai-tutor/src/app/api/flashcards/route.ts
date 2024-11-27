@@ -1,20 +1,23 @@
 import { NextResponse } from "next/server";
-import clientPromise from "@/utils/mongodb";
+import { connectToDatabase } from "@/utils/mongodb";
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET() {
     try {
-        const client = await clientPromise;
-        const db = client.db("studyfetch");
+        const { db } = await connectToDatabase();
+        const flashcardSets = await db.collection("flashcardSets").find({}).toArray();
 
-        const flashcardSet = await db.collection("flashcards").findOne({ _id: params.id });
-
-        if (!flashcardSet) {
-            return NextResponse.json({ success: false, error: "Flashcard set not found" }, { status: 404 });
-        }
-
-        return NextResponse.json({ success: true, data: flashcardSet });
+        return NextResponse.json({
+            success: true,
+            data: flashcardSets.map((set) => ({
+                _id: set._id.toString(),
+                topic: set.topic,
+            })),
+        });
     } catch (error: any) {
-        console.error("Error fetching flashcard set:", error.message);
-        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+        console.error("Error fetching flashcard sets:", error.message);
+        return NextResponse.json(
+            { success: false, error: error.message },
+            { status: 500 }
+        );
     }
 }

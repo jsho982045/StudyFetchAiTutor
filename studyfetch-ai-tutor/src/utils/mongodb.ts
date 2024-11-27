@@ -8,7 +8,7 @@ if (!process.env.MONGODB_URI) {
     throw new Error ('Please define the MONGODB_URI environment variable');
 }
 
-const uri = process.env.MONGODB_URI;
+const uri = process.env.MONGODB_URI as string;
 const options = {};
 
 let client: MongoClient;
@@ -25,5 +25,8 @@ else {
     client = new MongoClient(uri, options);
     clientPromise = client.connect();
 }
+export const connectToDatabase = async () => {
+    return clientPromise;
+};
 
 export default clientPromise;

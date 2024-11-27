@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import clientPromise from "@/utils/mongodb";
+import { ObjectId } from "mongodb";
 
 export async function GET(
     request: Request,
@@ -21,8 +22,8 @@ export async function GET(
 
         // Fetch the flashcard set by ID
         const flashcardSet = await db
-            .collection("flashcards")
-            .findOne({ _id: id });
+            .collection("flashcardSets")
+            .findOne({ _id: new ObjectId(id) });
 
         if (!flashcardSet) {
             return NextResponse.json(

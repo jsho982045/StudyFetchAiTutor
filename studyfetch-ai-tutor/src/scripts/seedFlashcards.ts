@@ -25,7 +25,7 @@ async function seedDatabase() {
             }
         ];
 
-        await db.collection('flashcards').insertMany(flashcards);
+        await db.collection('flashcardSets').insertMany(flashcards);
 
         console.log("Flashcards successfully seeded!");
         process.exit(0);   
