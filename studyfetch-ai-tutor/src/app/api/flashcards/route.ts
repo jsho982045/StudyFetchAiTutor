@@ -25,13 +25,19 @@ export async function GET() {
 export async function POST(req: Request) {
     try {
         const { topic, flashcards } = await req.json();
+        if (!topic || !flashcards) {
+            return NextResponse.json(
+                { success: false, error: "Invalid data" },
+                { status: 400 }
+            );
+        }
         const { db } = await connectToDatabase();
 
         const result = await db.collection("flashcardSets").insertOne({ topic, flashcards });
 
         return NextResponse.json({
             success: true,
-            data: { _id: result.insertedId.toString(), topic },
+            data: { _id: result.insertedId.toString(), topic, flashcards },
         });
     } catch (error: any) {
         console.error("Error saving flashcard set:", error.message);

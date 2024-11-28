@@ -1,24 +1,24 @@
+//src/app/chat/page.tsx
+
 "use client";
 
 import { useEffect, useState } from "react";
 import { createFlashcardSet } from "@/utils/anthropic";
+import ChatInput from "@/components/chat/ChatInput";
+import ChatMessage from "@/components/chat/ChatMessage";
+import SaveFeedback from "@/components/flashcards/SaveFeedback";
 import Link from "next/link";
-
-interface Flashcard {
-    term: string;
-    definition: string;
-    flipped?: boolean;
-}
-
-interface FlashcardSet {
-    _id: string; // MongoDB document ID
-    topic: string;
-    flashcards?: Flashcard[];
-}
 
 interface Message {
     sender: "User" | "AI";
-    text: string | { topic: string; flashcards: Flashcard[] };
+    text: string | { topic: string; flashcards: Array<{ term: string; definition: string }> };
+    type?: "flashcards" | "save-prompt" | "regular";
+}
+
+interface FlashcardSet {
+    _id: string;
+    topic: string;
+    flashcards: Array<{ term: string; definition: string }>;
 }
 
 export default function ChatPage() {
@@ -26,9 +26,14 @@ export default function ChatPage() {
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [flashcardSets, setFlashcardSets] = useState<FlashcardSet[]>([]);
-    const [lastFlashcardSet, setLastFlashcardSet] = useState<FlashcardSet | null>(null);
+    const [currentFlashcardIndex, setCurrentFlashcardIndex] = useState(0);
+    const [isFlipped, setIsFlipped] = useState(false);
+    const [saveState, setSaveState] = useState<{ saving: boolean, error: string | null }>({
+        saving: false,
+        error: null
+    });
 
-    // Fetch flashcard sets from the database
+    // Fetch existing flashcard sets
     useEffect(() => {
         const fetchFlashcardSets = async () => {
             try {
@@ -36,65 +41,126 @@ export default function ChatPage() {
                 const data = await response.json();
                 if (data.success) {
                     setFlashcardSets(data.data);
-                } else {
-                    console.error("Failed to fetch flashcard sets:", data.error);
                 }
             } catch (error) {
                 console.error("Error fetching flashcard sets:", error);
             }
         };
-
         fetchFlashcardSets();
     }, []);
+
+    // Keyboard navigation
+    useEffect(() => {
+        const handleKeyPress = (event: KeyboardEvent) => {
+            const currentMessage = messages.find(msg => 
+                msg.type === "flashcards" && typeof msg.text !== "string"
+            );
+            
+            if (!currentMessage || typeof currentMessage.text === "string") return;
+
+            const flashcards = currentMessage.text.flashcards;
+            
+            switch (event.key) {
+                case 'ArrowLeft':
+                    setCurrentFlashcardIndex(prev => 
+                        prev > 0 ? prev - 1 : flashcards.length - 1
+                    );
+                    setIsFlipped(false);
+                    break;
+                case 'ArrowRight':
+                    setCurrentFlashcardIndex(prev => 
+                        (prev + 1) % flashcards.length
+                    );
+                    setIsFlipped(false);
+                    break;
+                case ' ':
+                    event.preventDefault();
+                    setIsFlipped(prev => !prev);
+                    break;
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyPress);
+        return () => window.removeEventListener('keydown', handleKeyPress);
+    }, [messages]);
+
+    const handleSave = async (flashcardSet: { topic: string; flashcards: Array<{ term: string; definition: string }> }) => {
+        setSaveState({ saving: true, error: null });
+        try {
+            const response = await fetch("/api/flashcards", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(flashcardSet),
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                setFlashcardSets(prev => [...prev, data.data]);
+                setMessages(prev => [
+                    ...prev,
+                    {
+                        sender: "AI",
+                        text: "Flashcard set saved successfully! You can access it from the sidebar.",
+                        type: "regular"
+                    }
+                ]);
+            } else {
+                throw new Error("Failed to save flashcard set");
+            }
+        } catch (error) {
+            setSaveState({ saving: false, error: 'Failed to save flashcard set' });
+        } finally {
+            setSaveState({ saving: false, error: null });
+        }
+    };
 
     const handleSend = async () => {
         if (!input.trim()) return;
     
-        setMessages([...messages, { sender: "User", text: input }]);
         const userMessage = input;
         setInput("");
+        console.log("1. User message added")
+        setMessages(prev => [...prev, { sender: "User", text: userMessage, type: "regular" }]);
         setLoading(true);
     
         try {
             if (userMessage.toLowerCase().includes("create flashcards on")) {
                 const topic = userMessage.replace(/create flashcards on/i, "").trim();
-                setMessages((prev) => [
+                console.log("2. Creating flashcards message")
+                // Add the "Creating..." message
+                setMessages(prev => [
                     ...prev,
-                    { sender: "AI", text: `Creating flashcards on "${topic}"...` },
+                    { 
+                        sender: "AI", 
+                        text: `Creating flashcards on "${topic}"...`,
+                        type: "regular"
+                    }
                 ]);
+                console.log("3. Awaiting flashcard creation");
     
+                // Wait for flashcard creation
                 const flashcardData = await createFlashcardSet(topic);
-    
-                setMessages((prev) => [
-                    ...prev,
-                    {
-                        sender: "AI",
-                        text: {
-                            topic: flashcardData.topic,
-                            flashcards: flashcardData.flashcards.map((card) => ({
-                                ...card,
-                                flipped: false,
-                            })),
+                console.log("4. Flashcard data received:", flashcardData);
+
+                // Add flashcard set AND save prompt messages together
+                setMessages(prev => {
+                    console.log("5. Setting messages with flashcards and save prompt");
+                    return [
+                        ...prev,
+                        {
+                            sender: "AI",
+                            text: flashcardData,
+                            type: "flashcards"
                         },
-                    },
-                ]);
-    
-                // Save flashcard set to MongoDB
-                const response = await fetch("/api/flashcards", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ topic: flashcardData.topic, flashcards: flashcardData.flashcards }),
+                        {   // Add save prompt immediately after flashcards
+                            sender: "AI",
+                            text: "Would you like to save this flashcard set to your collection?",
+                            type: "save-prompt"
+                        }
+                    ];
                 });
-    
-                if (response.ok) {
-                    const savedSet = await response.json();
-                    console.log("Saved Set:", savedSet); // Debugging log
-                    setFlashcardSets((prev) => [...prev, savedSet.data]);
-                    setLastFlashcardSet(savedSet.data);
-                } else {
-                    console.error("Failed to save flashcard set");
-                }
             } else {
+                // Your existing code for regular messages
                 const response = await fetch("/api/anthropic", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -103,32 +169,34 @@ export default function ChatPage() {
     
                 if (response.ok) {
                     const data = await response.json();
-                    setMessages((prev) => [
+                    setMessages(prev => [
                         ...prev,
-                        { sender: "AI", text: data.content },
-                    ]);
-                } else {
-                    setMessages((prev) => [
-                        ...prev,
-                        { sender: "AI", text: "Error processing your request." },
+                        {
+                            sender: "AI",
+                            text: data.content,
+                            type: "regular"
+                        }
                     ]);
                 }
             }
         } catch (error) {
             console.error("Error:", error);
-            setMessages((prev) => [
+            setMessages(prev => [
                 ...prev,
-                { sender: "AI", text: "Sorry, something went wrong." },
+                {
+                    sender: "AI",
+                    text: "Sorry, something went wrong. Please try again.",
+                    type: "regular"
+                }
             ]);
         } finally {
             setLoading(false);
         }
     };
-    
+
 
     return (
         <div className="flex min-h-screen bg-gray-50">
-            {/* Sidebar */}
             <aside className="w-64 bg-blue-500 text-white flex flex-col">
                 <h2 className="text-xl font-bold p-4">Flashcard Sets</h2>
                 <ul className="flex-1 overflow-y-auto px-4">
@@ -142,98 +210,62 @@ export default function ChatPage() {
                 </ul>
             </aside>
 
-            {/* Chat Interface */}
             <div className="flex flex-col flex-1">
-                {/* Chat Messages */}
                 <div className="flex-1 overflow-y-auto p-6">
-                    {messages.map((msg, index) => (
-                        <div
+                    {messages.map((message, index) => (
+                        <ChatMessage
                             key={index}
-                            className={`flex ${
-                                msg.sender === "User" ? "justify-end" : "justify-start"
-                            } mb-4`}
-                        >
-                            <div
-                                className={`${
-                                    msg.sender === "User" ? "bg-blue-500" : "bg-green-500"
-                                } text-black p-4 rounded-lg max-w-md shadow`}
-                            >
-                                {typeof msg.text === "string" ? (
-                                    msg.text
-                                ) : (
-                                    Array.isArray(msg.text.flashcards) && (
-                                        <div>
-                                            <h3 className="font-bold">Topic: {msg.text.topic}</h3>
-                                            {msg.text.flashcards.map((card, idx) => (
-                                                <div
-                                                    key={idx}
-                                                    className={`p-2 border rounded my-1 cursor-pointer ${
-                                                        card.flipped
-                                                            ? "bg-gray-300"
-                                                            : "bg-gray-100"
-                                                    }`}
-                                                >
-                                                    {card.flipped ? card.definition : card.term}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )
-                                )}
-                            </div>
-                        </div>
+                            message={message}
+                            currentIndex={currentFlashcardIndex}
+                            isFlipped={isFlipped}
+                            onFlip={() => setIsFlipped(!isFlipped)}
+                            onNext={() => {
+                                setCurrentFlashcardIndex((prev) => {
+                                    if (typeof message.text !== 'string') {
+                                        return (prev + 1) % message.text.flashcards.length;
+                                    }
+                                    return prev;
+                                });
+                                setIsFlipped(false);
+                            }}
+                            onPrevious={() => {
+                                setCurrentFlashcardIndex((prev) => {
+                                    if (typeof message.text !== 'string') {
+                                        return prev > 0 ? prev - 1 : message.text.flashcards.length - 1;
+                                    }
+                                    return prev;
+                                });
+                                setIsFlipped(false);
+                            }}
+                            onSave={() => {
+                                if (typeof message.text !== 'string') {
+                                    handleSave(message.text);
+                                }
+                            }}
+                            onCancel={() => {
+                                setMessages(prev => [
+                                    ...prev,
+                                    {
+                                        sender: "AI",
+                                        text: "OK, I won't save the flashcard set. Let me know if you need anything else!",
+                                        type: "regular"
+                                    }
+                                ]);
+                            }}
+                        />
                     ))}
-
-                    {/* Render "Save Flashcards" button if a flashcard set was created */}
-                    {lastFlashcardSet && (
-                        <div className="mt-4 flex justify-center">
-                            <button
-                                onClick={() => {
-                                    fetch("/api/flashcards", {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({
-                                            topic: lastFlashcardSet.topic,
-                                            flashcards: lastFlashcardSet.flashcards,
-                                        }),
-                                    })
-                                        .then((res) => res.json())
-                                        .then((data) => {
-                                            if (data.success) {
-                                                alert("Flashcard set saved successfully!");
-                                            } else {
-                                                alert("Failed to save flashcard set.");
-                                            }
-                                        });
-                                }}
-                                className="px-4 py-2 bg-green-500 text-white rounded"
-                            >
-                                Save Flashcard Set
-                            </button>
-                        </div>
-                    )}
                 </div>
-
-                {/* Chat Input */}
-                <div className="p-4 bg-white shadow-lg flex">
-                    <input
-                        type="text"
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        className="flex-1 p-3 border border-gray-300 rounded-l-lg text-black font-bold"
-                        placeholder="Type a message..."
-                        disabled={loading}
-                    />
-                    <button
-                        onClick={handleSend}
-                        className={`bg-blue-500 text-white px-6 py-3 rounded-r-lg hover:bg-blue-600 ${
-                            loading ? "opacity-50 cursor-not-allowed" : ""
-                        }`}
-                        disabled={loading}
-                    >
-                        {loading ? "Sending..." : "Send"}
-                    </button>
-                </div>
+                <ChatInput
+                    input={input}
+                    loading={loading}
+                    onChange={setInput}
+                    onSend={handleSend}
+                />
             </div>
+            <SaveFeedback
+                saving={saveState.saving}
+                error={saveState.error}
+            />
         </div>
     );
 }
