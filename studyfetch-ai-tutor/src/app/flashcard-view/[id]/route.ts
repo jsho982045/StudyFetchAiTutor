@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
-import { connectToDatabase } from "@/utils/mongodb";
-import { ObjectId } from "mongodb"; // Import ObjectId
+import clientPromise from "@/utils/mongodb";
+import { ObjectId } from "mongodb";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
     try {
-        const { db } = await connectToDatabase();
-        const flashcardSet = await db.collection("flashcardSets").findOne({ _id: new ObjectId(params.id) }); // Convert to ObjectId
+        const client = await clientPromise;
+        const db = client.db("studyfetch");
+
+        // Find the flashcard set by ID
+        const flashcardSet = await db
+            .collection("flashcardSets")
+            .findOne({ _id: new ObjectId(params.id) });
 
         if (!flashcardSet) {
             return NextResponse.json(
@@ -14,10 +19,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
             );
         }
 
-        return NextResponse.json({
-            success: true,
-            flashcards: flashcardSet.flashcards,
-        });
+        return NextResponse.json({ success: true, flashcards: flashcardSet.flashcards });
     } catch (error: any) {
         console.error("Error fetching flashcard set:", error.message);
         return NextResponse.json(

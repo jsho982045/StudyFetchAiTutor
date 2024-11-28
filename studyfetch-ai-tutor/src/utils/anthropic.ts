@@ -29,7 +29,7 @@ export async function createFlashcardSet(prompt: string): Promise<{ topic: strin
 
     const body = JSON.stringify({
         model: "claude-3-5-sonnet-20241022",
-        max_tokens: 300,
+        max_tokens: 500,
         messages: [
             { role: "user", content: formattedPrompt },
         ],
