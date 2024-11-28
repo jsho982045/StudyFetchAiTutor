@@ -26,7 +26,9 @@ else {
     clientPromise = client.connect();
 }
 export const connectToDatabase = async () => {
-    return clientPromise;
+    const client = await clientPromise;
+    const db = client.db();
+    return { client, db };
 };
 
 export default clientPromise;

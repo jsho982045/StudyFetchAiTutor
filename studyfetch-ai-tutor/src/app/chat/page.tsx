@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createFlashcardSet } from "@/utils/anthropic"; 
+import { createFlashcardSet } from "@/utils/anthropic";
 import Link from "next/link";
+import { CachedRouteKind } from "next/dist/server/response-cache";
 
 interface FlashcardSet {
     _id: string; // MongoDB document ID
@@ -11,7 +12,7 @@ interface FlashcardSet {
 
 interface Message {
     sender: "User" | "AI";
-    text: string;
+    text: string | { topic: string; flashcards: { term: string; definition: string }[] };
 }
 
 export default function ChatPage() {
@@ -45,35 +46,48 @@ export default function ChatPage() {
 
     const handleSend = async () => {
         if (!input.trim()) return;
-    
+
         setMessages([...messages, { sender: "User", text: input }]);
         const userMessage = input;
         setInput("");
         setLoading(true);
-    
+
         try {
             if (userMessage.toLowerCase().includes("create flashcards on")) {
                 const topic = userMessage.replace(/create flashcards on/i, "").trim();
-                setMessages((prev) => [...prev, { sender: "AI", text: `Creating flashcards on "${topic}"...` }]);
-    
+                setMessages((prev) => [
+                    ...prev,
+                    { sender: "AI", text: `Creating flashcards on "${topic}"...` },
+                ]);
+
                 const flashcardData = await createFlashcardSet(topic);
-    
+
                 // Save flashcards to DB
                 const response = await fetch("/api/flashcards", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(flashcardData),
                 });
-    
+
                 if (response.ok) {
                     const result = await response.json();
                     setMessages((prev) => [
                         ...prev,
                         {
                             sender: "AI",
-                            text: `Flashcard set "${flashcardData.topic}" created! [View Flashcards](#/flashcards/${result.data.id})`,
+                            text: {
+                                topic: flashcardData.topic,
+                                flashcards: flashcardData.flashcards,
+                            },
                         },
                     ]);
+
+                    const updatedFlashcardSets = await fetch("/api/flashcards");
+                    const updatedData = await updatedFlashcardSets.json();
+
+                    if(updatedData.success) {
+                        setFlashcardSets(updatedData.data);
+                    }
                 } else {
                     setMessages((prev) => [
                         ...prev,
@@ -86,10 +100,13 @@ export default function ChatPage() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ prompt: userMessage }),
                 });
-    
+
                 if (response.ok) {
                     const data = await response.json();
-                    setMessages((prev) => [...prev, { sender: "AI", text: data.content }]);
+                    setMessages((prev) => [
+                        ...prev,
+                        { sender: "AI", text: data.content },
+                    ]);
                 } else {
                     setMessages((prev) => [
                         ...prev,
@@ -148,7 +165,27 @@ export default function ChatPage() {
                                     msg.sender === "User" ? "bg-blue-500" : "bg-green-500"
                                 } text-white p-4 rounded-lg max-w-md shadow`}
                             >
-                                {msg.text}
+                                {/* Check if the message text is a string */}
+                                {typeof msg.text === "string" ? (
+                                    msg.text
+                                ) : (
+                                    /* Handle non-string message content (e.g., flashcards) */
+                                    Array.isArray(msg.text.flashcards) ? (
+                                        <div>
+                                            <h3 className="font-bold">Topic: {msg.text.topic}</h3>
+                                            {msg.text.flashcards.map((card, idx) => (
+                                                <div
+                                                    key={idx}
+                                                    className="p-2 border rounded bg-gray-100 my-1"
+                                                >
+                                                    <strong className="font-bold text-black">{card.term}</strong>: {card.definition}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        "Invalid message content"
+                                    )
+                                )}
                             </div>
                         </div>
                     ))}
@@ -160,7 +197,7 @@ export default function ChatPage() {
                         type="text"
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        className="flex-1 p-3 border border-gray-300 rounded-l-lg"
+                        className="flex-1 p-3 border border-gray-300 rounded-l-lg text-black font-bold"
                         placeholder="Type a message..."
                         disabled={loading}
                     />
